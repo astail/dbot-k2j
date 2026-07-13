@@ -15,6 +15,8 @@ export interface Config {
   voicevoxSpeaker: number;
   /** 読み上げに回す訳文の最大文字数 (超過分は切り詰め。字幕は全文) */
   ttsMaxChars: number;
+  /** 字幕メッセージを自動削除するまでの時間(ms)。0 で削除しない */
+  subtitleTtlMs: number;
   dataDir: string;
   rmsThreshold: number;
   silenceMs: number;
@@ -62,6 +64,7 @@ export function loadConfig(): Config {
     voicevoxUrl: env("VOICEVOX_URL", "http://voicevox:50021").replace(/\/+$/, ""),
     voicevoxSpeaker: numEnv("VOICEVOX_SPEAKER", 3),
     ttsMaxChars: numEnv("TTS_MAX_CHARS", 300, 1),
+    subtitleTtlMs: numEnv("SUBTITLE_TTL_MS", 30_000),
     dataDir: env("DATA_DIR", "/data"),
     rmsThreshold: numEnv("RMS_THRESHOLD", 250),
     silenceMs: numEnv("SILENCE_MS", 800, 100),

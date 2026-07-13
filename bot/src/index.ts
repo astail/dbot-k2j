@@ -50,11 +50,17 @@ const output: PipelineOutput = {
     const channel = await resolveSubtitleChannel(guildId);
     if (!channel) return;
     const name = await displayName(guildId, userId);
-    await channel.send({
+    const message = await channel.send({
       content: `**${escapeDiscord(name)}**：${escapeDiscord(ja)}\n-# ${escapeDiscord(ko)}`,
       allowedMentions: { parse: [] },
       flags: MessageFlags.SuppressNotifications,
     });
+    // 一定時間後に字幕を自動削除してチャンネルを流し過ぎない (0 なら残す)
+    if (cfg.subtitleTtlMs > 0) {
+      setTimeout(() => {
+        void message.delete().catch(() => {});
+      }, cfg.subtitleTtlMs).unref?.();
+    }
   },
   playTts(guildId, pcm) {
     sessions.get(guildId)?.enqueueTts(pcm);
@@ -131,7 +137,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
 });
 
-// VC が無人になったら 60 秒後に自動退出 (VC に居座って API を無駄にしない)
+// VC が無人になったら即座に自動退出 (VC に居座って API を無駄にしない)
 const emptyTimers = new Map<string, NodeJS.Timeout>();
 client.on(Events.VoiceStateUpdate, (oldState) => {
   const guild = oldState.guild;
@@ -152,7 +158,7 @@ client.on(Events.VoiceStateUpdate, (oldState) => {
           console.log(`[voice] 無人になったため ${guild.name} の VC から退出します`);
           s.destroy();
         }
-      }, 60_000),
+      }, 0),
     );
   } else {
     const timer = emptyTimers.get(guild.id);
