@@ -1,6 +1,42 @@
 const HANGUL_RE = /[가-힣ᄀ-ᇿ㄰-㆏]/;
 
 /**
+ * 翻訳しても会話の情報量が増えない、単独の相槌・フィラー・笑い声。
+ * 句読点で区切られた複数の相槌も、全要素がこの条件を満たす場合だけ破棄する。
+ */
+const BACKCHANNEL_WORDS = new Set([
+  "아하",
+  "와",
+  "우와",
+  "헐",
+  "그래",
+  "맞아",
+  "그렇지",
+  "그러게",
+  "알겠어",
+  "알겠어요",
+  "알았어",
+  "알았어요",
+  "오케이",
+]);
+const BACKCHANNEL_SOUND_RE =
+  /^(?:아+|어+|으*음+|흠+|응+|네+에*|예+에*|오+|[\u1100-\u11ffㄱ-ㅎ]+|하하+)$/;
+const BACKCHANNEL_SEPARATOR_RE = /[\s.,!?…~。！？、，"'“”‘’()[\]{}<>:;·]+/u;
+
+/** テキスト全体が相槌などの短い反応だけなら true */
+export function isBackchannel(text: string): boolean {
+  const parts = text
+    .normalize("NFKC")
+    .toLowerCase()
+    .split(BACKCHANNEL_SEPARATOR_RE)
+    .filter(Boolean);
+  return (
+    parts.length > 0 &&
+    parts.every((part) => BACKCHANNEL_WORDS.has(part) || BACKCHANNEL_SOUND_RE.test(part))
+  );
+}
+
+/**
  * Whisper が無音や環境音から生成しがちな定型句 (韓国語 YouTube 字幕由来の
  * ハルシネーション)。短いテキストがこれらに一致したら破棄する。
  */
@@ -10,9 +46,6 @@ const HALLUCINATION_RES: RegExp[] = [
   /(MBC|KBS|SBS)\s*뉴스/,
   /다음\s*(영상|시간)에\s*만나/,
   /자막\s*(제공|by)/i,
-  /^음[.…\s]*$/, // フィラー単体 ("うーん")
-  // 注意: "네" (はい) や "감사합니다" (ありがとう) 単体は実会話でも使われるため
-  // ここには入れない。ノイズ由来のものは RMS ゲートと連続重複除去が弾く。
 ];
 
 export function hasHangul(text: string): boolean {
@@ -24,6 +57,7 @@ export function isUsableTranscript(text: string): boolean {
   const t = text.trim();
   if (t.length === 0) return false;
   if (!hasHangul(t)) return false; // 韓国語話者の発話なのにハングル無し = 誤認識か雑音
+  if (isBackchannel(t)) return false;
   if (t.length <= 30 && HALLUCINATION_RES.some((re) => re.test(t))) return false;
   return true;
 }
