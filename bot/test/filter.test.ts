@@ -27,11 +27,18 @@ describe("isUsableTranscript", () => {
     expect(isUsableTranscript("몰라.")).toBe(true);
   });
 
+  it("笑い声以外のハングル字母略語は通す", () => {
+    expect(isUsableTranscript("ㄴㄴ")).toBe(true);
+    expect(isUsableTranscript("ㅈㅅ")).toBe(true);
+    expect(isUsableTranscript("ㄱㄱ")).toBe(true);
+  });
+
   it("相槌だけの発話は破棄する", () => {
     for (const text of [
       "네.",
       "응",
       "으음...",
+      "흐음...",
       "아하!",
       "그래",
       "맞아.",
@@ -41,6 +48,26 @@ describe("isUsableTranscript", () => {
       "ㅋㅋㅋ",
       "네, 네",
       "아... 네.",
+    ]) {
+      expect(isUsableTranscript(text), text).toBe(false);
+    }
+  });
+
+  it("丁寧形や頻出表記の相槌も破棄する", () => {
+    for (const text of [
+      "그래요",
+      "맞아요",
+      "맞습니다",
+      "그렇죠",
+      "그렇습니다",
+      "그러게요",
+      "그러네요",
+      "알겠습니다",
+      "알았습니다",
+      "넵",
+      "넹",
+      "옙",
+      "넵넵",
     ]) {
       expect(isUsableTranscript(text), text).toBe(false);
     }
