@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import {
   Client,
   Events,
@@ -15,6 +16,7 @@ import { createTranslator } from "./mt/index.js";
 import { SettingsStore } from "./store.js";
 import { SttClient } from "./stt/openaiCompat.js";
 import { ReactionTranslator } from "./text/reactionTranslate.js";
+import { TranslationIndex } from "./text/translationIndex.js";
 import { VoicevoxClient } from "./tts/voicevox.js";
 import { Pipeline, type PipelineOutput } from "./voice/pipeline.js";
 import { VoiceSession } from "./voice/session.js";
@@ -45,7 +47,11 @@ const client = new Client({
     ? [Partials.Message, Partials.Channel, Partials.Reaction, Partials.User]
     : [],
 });
-if (cfg.reactionTranslation) new ReactionTranslator(client, cfg, mt).register();
+// 元メッセージ↔翻訳の対応は再起動後も削除に追随できるよう DATA_DIR に永続化する
+const translationIndex = cfg.reactionTranslation
+  ? new TranslationIndex(join(cfg.dataDir, "translations.db"))
+  : null;
+if (translationIndex) new ReactionTranslator(client, cfg, mt, translationIndex).register();
 
 async function resolveSubtitleChannel(guildId: string): Promise<SendableChannels | null> {
   const channelId = store.guild(guildId).subtitleChannelId ?? sessions.get(guildId)?.channelId;
@@ -190,6 +196,7 @@ function shutdown(): void {
   console.log("シャットダウンします...");
   for (const s of [...sessions.values()]) s.destroy();
   store.save();
+  translationIndex?.close();
   void client.destroy().finally(() => process.exit(0));
 }
 process.on("SIGINT", shutdown);
