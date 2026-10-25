@@ -17,6 +17,10 @@ export interface Config {
   ttsMaxChars: number;
   /** 字幕メッセージを自動削除するまでの時間(ms)。0 で削除しない */
   subtitleTtlMs: number;
+  /** テキストチャットの国旗リアクションで翻訳する機能 (要: Message Content Intent) */
+  reactionTranslation: boolean;
+  /** 翻訳先言語ごとのトリガー絵文字 (Unicode 絵文字 or カスタム絵文字の名前/ID) */
+  reactionEmojis: { ko: string[]; ja: string[] };
   dataDir: string;
   rmsThreshold: number;
   silenceMs: number;
@@ -39,6 +43,14 @@ function numEnv(name: string, fallback: number, min = 0): number {
     throw new Error(`${name} の値が不正です: ${raw}`);
   }
   return v;
+}
+
+function listEnv(name: string, fallback: string[]): string[] {
+  const list = env(name)
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return list.length > 0 ? list : fallback;
 }
 
 export function loadConfig(): Config {
@@ -65,6 +77,11 @@ export function loadConfig(): Config {
     voicevoxSpeaker: numEnv("VOICEVOX_SPEAKER", 3),
     ttsMaxChars: numEnv("TTS_MAX_CHARS", 300, 1),
     subtitleTtlMs: numEnv("SUBTITLE_TTL_MS", 30_000),
+    reactionTranslation: env("REACTION_TRANSLATION", "true").toLowerCase() !== "false",
+    reactionEmojis: {
+      ko: listEnv("REACTION_KO_EMOJI", ["🇰🇷"]),
+      ja: listEnv("REACTION_JA_EMOJI", ["🇯🇵"]),
+    },
     dataDir: env("DATA_DIR", "/data"),
     rmsThreshold: numEnv("RMS_THRESHOLD", 250),
     silenceMs: numEnv("SILENCE_MS", 800, 100),

@@ -3,6 +3,7 @@ import {
   Events,
   GatewayIntentBits,
   MessageFlags,
+  Partials,
   type Guild,
   type SendableChannels,
   type VoiceBasedChannel,
@@ -13,6 +14,7 @@ import type { BotContext } from "./context.js";
 import { createTranslator } from "./mt/index.js";
 import { SettingsStore } from "./store.js";
 import { SttClient } from "./stt/openaiCompat.js";
+import { ReactionTranslator } from "./text/reactionTranslate.js";
 import { VoicevoxClient } from "./tts/voicevox.js";
 import { Pipeline, type PipelineOutput } from "./voice/pipeline.js";
 import { VoiceSession } from "./voice/session.js";
@@ -26,9 +28,24 @@ const tts = new VoicevoxClient(cfg);
 const sessions = new Map<string, VoiceSession>();
 
 const client = new Client({
-  // 音声のみ扱うので特権 Intent (Message Content 等) は不要
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildVoiceStates,
+    // リアクション翻訳: 本文の読み取りに特権 Intent (Message Content) が必要
+    ...(cfg.reactionTranslation
+      ? [
+          GatewayIntentBits.GuildMessages,
+          GatewayIntentBits.GuildMessageReactions,
+          GatewayIntentBits.MessageContent,
+        ]
+      : []),
+  ],
+  // キャッシュに無い古いメッセージへのリアクション・削除も受け取るため
+  partials: cfg.reactionTranslation
+    ? [Partials.Message, Partials.Channel, Partials.Reaction, Partials.User]
+    : [],
 });
+if (cfg.reactionTranslation) new ReactionTranslator(client, cfg, mt).register();
 
 async function resolveSubtitleChannel(guildId: string): Promise<SendableChannels | null> {
   const channelId = store.guild(guildId).subtitleChannelId ?? sessions.get(guildId)?.channelId;
@@ -190,5 +207,11 @@ process.on("uncaughtException", (err) => {
 
 client.login(cfg.discordToken).catch((e) => {
   console.error("Discord へのログインに失敗しました:", e instanceof Error ? e.message : e);
+  if (e instanceof Error && /disallowed intents/i.test(e.message)) {
+    console.error(
+      "→ Developer Portal の Bot 設定で「Message Content Intent」を ON にしてください。" +
+        "リアクション翻訳を使わない場合は .env に REACTION_TRANSLATION=false を設定します。",
+    );
+  }
   process.exit(1);
 });

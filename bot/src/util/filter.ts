@@ -1,4 +1,7 @@
 const HANGUL_RE = /[가-힣ᄀ-ᇿ㄰-㆏]/;
+const KANA_RE = /[\u3040-\u30ff\u31f0-\u31ff\uff66-\uff9f]/;
+/** カスタム絵文字・メンション・URL (翻訳対象の文字として数えない) */
+const NON_TEXT_TOKEN_RE = /<a?:\w+:\d+>|<(?:[@#]|@!|@&)\d+>|https?:\/\/\S+/g;
 
 /**
  * 翻訳しても会話の情報量が増えない、単独の相槌・フィラー・笑い声。
@@ -59,6 +62,24 @@ const HALLUCINATION_RES: RegExp[] = [
 
 export function hasHangul(text: string): boolean {
   return HANGUL_RE.test(text);
+}
+
+/**
+ * 文字種から韓国語/日本語を推定する。ハングルのみ → ko、仮名のみ → ja、
+ * 判別できない (両方含む・漢字のみ・英語など) 場合は null
+ */
+export function guessLang(text: string): "ko" | "ja" | null {
+  const ko = HANGUL_RE.test(text);
+  const ja = KANA_RE.test(text);
+  if (ko === ja) return null;
+  return ko ? "ko" : "ja";
+}
+
+/** チャット発言を target 言語へ翻訳する意味があるか (既に target 言語・文字なしなら false) */
+export function needsChatTranslation(text: string, target: "ko" | "ja"): boolean {
+  const body = text.replace(NON_TEXT_TOKEN_RE, "");
+  if (!/\p{L}/u.test(body)) return false;
+  return guessLang(body) !== target;
 }
 
 /** STT 結果として採用してよいか。false なら破棄 */
