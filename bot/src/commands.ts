@@ -228,6 +228,11 @@ async function status(ctx: BotContext, i: ChatInputCommandInteraction): Promise<
     `読み上げ: ${ttsOn ? `ON (VOICEVOX speaker ${ctx.cfg.voicevoxSpeaker})` : "OFF (字幕のみ)"}`,
     `字幕投稿先: ${settings.subtitleChannelId ? `<#${settings.subtitleChannelId}>` : "VC のテキストチャット"}`,
     `指定話者: ${settings.userIds.length} 名`,
+    `リアクション翻訳: ${
+      ctx.cfg.reactionTranslation
+        ? `ON (${ctx.cfg.reactionEmojis.ko.join(" ")} → 韓国語 / ${ctx.cfg.reactionEmojis.ja.join(" ")} → 日本語)`
+        : "OFF"
+    }`,
     `VC: ${session ? `接続中 (<#${session.channelId}>)` : "未接続"}`,
     `処理済 ${stats.processed} 件 / 破棄 ${stats.dropped} 件 / エラー ${stats.errors} 件` +
       (stats.lastLatencyMs !== null ? ` / 直近レイテンシ ${(stats.lastLatencyMs / 1000).toFixed(1)} 秒` : ""),

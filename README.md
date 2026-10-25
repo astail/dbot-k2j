@@ -28,7 +28,8 @@ Discord のボイスチャンネルで、**指定した韓国語話者**の発�
 
 1. [Discord Developer Portal](https://discord.com/developers/applications) → **New Application** → 名前を付けて作成
 2. 左メニュー **Bot** → **Reset Token** → 表示されたトークンを控える (`.env` に書く)
-3. 特権 Intent (Presence / Server Members / Message Content) は**すべて OFF のままで OK** (音声のみ使用)
+3. 同じ画面の Privileged Gateway Intents で **Message Content Intent を ON** にする (リアクション翻訳で本文を読むため)。
+   Presence / Server Members は OFF のままで OK。リアクション翻訳を使わない場合は `.env` に `REACTION_TRANSLATION=false` を設定すれば ON にする必要はありません
 4. サーバーへの招待は、bot 起動時のログに出る招待 URL を使うのが簡単です。手動で作る場合:
    `https://discord.com/api/oauth2/authorize?client_id=<アプリのAPPLICATION ID>&permissions=3214336&scope=bot%20applications.commands`
    (権限 = チャンネル閲覧 / メッセージ送信 / 履歴閲覧 / 接続 / 発言)
@@ -76,6 +77,24 @@ node scripts/smoke.mjs
 
 投稿された字幕は、チャンネルを流し過ぎないよう**既定で 30 秒後に自動削除**されます
 (`.env` の `SUBTITLE_TTL_MS` で変更、`0` で削除しない)。
+
+### テキストチャットのリアクション翻訳
+
+ボットが見えるテキストチャンネル (VC 内蔵チャット・スレッド含む) で、メッセージに国旗のリアクションを付けると翻訳を返信します。
+VC に接続していなくても使えます。
+
+| リアクション | 動作 |
+|---|---|
+| 🇰🇷 | 日本語の発言を**韓国語**に翻訳して返信 |
+| 🇯🇵 | 韓国語の発言を**日本語**に翻訳して返信 |
+
+- 同じメッセージに同じ国旗が何人付けても翻訳は 1 回だけ投稿されます (既に翻訳先の言語のメッセージ・URL や絵文字だけのメッセージは無視)
+- **元メッセージが削除されると翻訳も自動で削除**されます
+- **その国旗のリアクションが全員分外されると翻訳も削除**されます (誤爆したら外すだけ)
+- **元メッセージが編集されると翻訳も更新**されます
+- 翻訳メッセージ自体は誰でも手動で削除できます (権限があれば)
+- トリガーの絵文字は `.env` の `REACTION_KO_EMOJI` / `REACTION_JA_EMOJI` で変更・追加できます (カンマ区切り、カスタム絵文字は名前か ID)
+- 元メッセージと翻訳の対応はメモリ上で管理しているため、**ボット再起動より前に投稿した翻訳は**元メッセージを消しても自動では消えません
 
 ## エンジンの切り替え
 
@@ -138,13 +157,15 @@ VOICEVOX の音声を公の場で使う場合はキャラクター毎の利用�
 | 認識精度が低い | `STT_MODEL=Systran/faster-whisper-medium` に上げる、または OpenAI STT へ切替。話者のマイク環境も影響大 |
 | 読み上げされない (字幕は出る) | `docker compose logs voicevox`。`/k2j tts on` になっているか |
 | 音声受信が突然壊れた | Discord の音声プロトコル (DAVE/E2EE) 更新の可能性。`cd bot && npm update @discordjs/voice discord.js` して再ビルド |
+| ログインできず `Used disallowed intents` | Developer Portal → Bot で Message Content Intent を ON (または `REACTION_TRANSLATION=false`) |
+| 国旗リアクションを付けても翻訳されない | ボットがそのチャンネルで「メッセージの送信」「メッセージ履歴を読む」権限を持っているか。`docker compose logs bot` の `[reaction]` |
 | 翻訳が遅い/欠ける | `/k2j status` のレイテンシ確認。読み上げが追いつかない分は自動スキップされます (字幕は全件投稿) |
 
 ## 既知の制限・注意
 
 - **VC の音声受信は Discord の非公式機能**です。自己管理サーバでの利用を想定しています。Discord 側の変更で動かなくなる可能性があるため、その際は `@discordjs/voice` の更新で追随してください
 - 音声認識は韓国語固定 (`STT_LANGUAGE=ko`) のため、**指定話者が日本語を話すと誤認識**されます (定型ノイズや相槌だけの発話はフィルタで破棄されます)
-- クラウド API 利用時は音声/テキストが外部 (OpenAI / DeepL / Anthropic) に送信されます。サーバのメンバーに周知しておくことを推奨します
+- クラウド API 利用時は音声/テキスト (リアクション翻訳したチャットの本文を含む) が外部 (OpenAI / DeepL / Anthropic) に送信されます。サーバのメンバーに周知しておくことを推奨します
 - 読み上げは会話と被ることがあります。気になる場合は `/k2j tts off` で字幕のみの運用にしてください
 
 ## 開発

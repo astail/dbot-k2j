@@ -1,5 +1,5 @@
 import type { Config } from "../config.js";
-import type { Translator } from "./index.js";
+import { VOICE_KO_JA, type TranslateOptions, type Translator } from "./index.js";
 
 export class DeepLTranslator implements Translator {
   readonly name = "DeepL";
@@ -12,14 +12,18 @@ export class DeepLTranslator implements Translator {
       : "https://api.deepl.com/v2";
   }
 
-  async translate(koText: string): Promise<string> {
+  async translate(text: string, opts: TranslateOptions = VOICE_KO_JA): Promise<string> {
     const res = await fetch(`${this.base}/translate`, {
       method: "POST",
       headers: {
         Authorization: `DeepL-Auth-Key ${this.cfg.deeplApiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ text: [koText], source_lang: "KO", target_lang: "JA" }),
+      body: JSON.stringify({
+        text: [text],
+        source_lang: opts.from.toUpperCase(),
+        target_lang: opts.to.toUpperCase(),
+      }),
       signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) {
