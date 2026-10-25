@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { emojiLang, formatTranslation } from "../src/text/reactionTranslate.js";
+import { emojiLang, formatTranslation, truncateChars } from "../src/text/reactionTranslate.js";
 import { TranslationIndex } from "../src/text/translationIndex.js";
 import { guessLang, needsChatTranslation } from "../src/util/filter.js";
 
@@ -44,6 +44,15 @@ describe("formatTranslation", () => {
     const long = formatTranslation("가".repeat(3000), "ko");
     expect(long.length).toBeLessThanOrEqual(2000);
     expect(long.endsWith("…\n-# 🇰🇷 韓国語訳")).toBe(true);
+    expect(formatTranslation("x", "ja", true)).toBe("x\n-# 🇯🇵 日本語訳 (先頭のみ)");
+  });
+
+  it("絵文字 (サロゲートペア) の途中で切らない", () => {
+    const out = formatTranslation("😀".repeat(1500), "ja");
+    expect(out.length).toBeLessThanOrEqual(2000);
+    expect(out).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])/);
+    expect(truncateChars("😀😀😀", 2)).toEqual({ text: "😀😀", truncated: true });
+    expect(truncateChars("abc", 5)).toEqual({ text: "abc", truncated: false });
   });
 });
 
@@ -85,6 +94,14 @@ describe("TranslationIndex", () => {
     idx.set("m1", "ja", { translationId: "t1", sourceText: "before" });
     idx.updateSource("m1", "ja", "after");
     expect(idx.get("m1", "ja")).toEqual({ translationId: "t1", sourceText: "after" });
+  });
+
+  it("同じ本文の訳文をキャッシュから取り出せる", () => {
+    const idx = new TranslationIndex(":memory:");
+    idx.cacheTranslation("m1", "ko", "こんにちは", "안녕하세요");
+    expect(idx.cachedTranslation("m1", "ko", "こんにちは")).toBe("안녕하세요");
+    expect(idx.cachedTranslation("m1", "ko", "こんばんは")).toBeUndefined();
+    expect(idx.cachedTranslation("m1", "ja", "こんにちは")).toBeUndefined();
   });
 
   it("再起動 (開き直し) 後も対応が残っている", () => {

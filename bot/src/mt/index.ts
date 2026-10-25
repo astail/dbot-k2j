@@ -7,7 +7,8 @@ export type Lang = "ko" | "ja";
 export const LANG_NAMES: Record<Lang, string> = { ko: "韓国語", ja: "日本語" };
 
 export interface TranslateOptions {
-  from: Lang;
+  /** null なら翻訳エンジンに元言語を自動判定させる */
+  from: Lang | null;
   to: Lang;
   /** voice: 音声認識結果 (認識ミスを含む) / chat: テキストチャットの発言 */
   source: "voice" | "chat";
