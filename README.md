@@ -31,8 +31,8 @@ Discord のボイスチャンネルで、**指定した韓国語話者**の発�
 3. 同じ画面の Privileged Gateway Intents で **Message Content Intent を ON** にする (リアクション翻訳で本文を読むため)。
    Presence / Server Members は OFF のままで OK。リアクション翻訳を使わない場合は `.env` に `REACTION_TRANSLATION=false` を設定すれば ON にする必要はありません
 4. サーバーへの招待は、bot 起動時のログに出る招待 URL を使うのが簡単です。手動で作る場合:
-   `https://discord.com/api/oauth2/authorize?client_id=<アプリのAPPLICATION ID>&permissions=3214336&scope=bot%20applications.commands`
-   (権限 = チャンネル閲覧 / メッセージ送信 / 履歴閲覧 / 接続 / 発言)
+   `https://discord.com/api/oauth2/authorize?client_id=<アプリのAPPLICATION ID>&permissions=274881121280&scope=bot%20applications.commands`
+   (権限 = チャンネル閲覧 / メッセージ送信 / スレッドでメッセージ送信 / 履歴閲覧 / 接続 / 発言)
 
 ### 2. 設定ファイルを作る
 
@@ -93,6 +93,8 @@ VC に接続していなくても使えます。
 - **その国旗のリアクションが全員分外されると翻訳も削除**されます (誤爆したら外すだけ)
 - **元メッセージが編集されると翻訳も更新**されます
 - 翻訳メッセージ自体は誰でも手動で削除できます (権限があれば)
+- API 料金の浪費を防ぐため、同じ本文の再翻訳はキャッシュを使い、1 ユーザーあたりの翻訳回数 (`REACTION_RATE_PER_MIN`、既定 10 回/分) と本文の長さ (`REACTION_MAX_CHARS`、既定 1000 文字。超えた分は先頭だけ翻訳) に上限があります
+- 英語など韓国語/日本語以外の発言も、翻訳エンジンが元言語を自動判定して翻訳します
 - トリガーの絵文字は `.env` の `REACTION_KO_EMOJI` / `REACTION_JA_EMOJI` で変更・追加できます (カンマ区切り、カスタム絵文字は名前か ID)
 - 元メッセージと翻訳の対応は `bot-data` ボリュームの SQLite (`translations.db`) に保存されるため、ボットや PC を再起動した後でも元メッセージの削除・編集に追随します (直近 10 万件まで保持)
 
@@ -158,7 +160,7 @@ VOICEVOX の音声を公の場で使う場合はキャラクター毎の利用�
 | 読み上げされない (字幕は出る) | `docker compose logs voicevox`。`/k2j tts on` になっているか |
 | 音声受信が突然壊れた | Discord の音声プロトコル (DAVE/E2EE) 更新の可能性。`cd bot && npm update @discordjs/voice discord.js` して再ビルド |
 | ログインできず `Used disallowed intents` | Developer Portal → Bot で Message Content Intent を ON (または `REACTION_TRANSLATION=false`) |
-| 国旗リアクションを付けても翻訳されない | ボットがそのチャンネルで「メッセージの送信」「メッセージ履歴を読む」権限を持っているか。`docker compose logs bot` の `[reaction]` |
+| 国旗リアクションを付けても翻訳されない | ボットがそのチャンネルで「メッセージの送信」(スレッドでは「スレッドでメッセージを送信」)「メッセージ履歴を読む」権限を持っているか。`docker compose logs bot` の `[reaction]` (権限不足・回数制限はここに出ます) |
 | 翻訳が遅い/欠ける | `/k2j status` のレイテンシ確認。読み上げが追いつかない分は自動スキップされます (字幕は全件投稿) |
 
 ## 既知の制限・注意

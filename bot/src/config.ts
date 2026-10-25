@@ -21,6 +21,10 @@ export interface Config {
   reactionTranslation: boolean;
   /** 翻訳先言語ごとのトリガー絵文字 (Unicode 絵文字 or カスタム絵文字の名前/ID) */
   reactionEmojis: { ko: string[]; ja: string[] };
+  /** リアクション翻訳する本文の最大文字数 (超過分は切り捨てて先頭のみ翻訳) */
+  reactionMaxChars: number;
+  /** 1 ユーザーが 1 分間に起こせる翻訳 (API 呼び出し) の回数。0 で無制限 */
+  reactionRatePerMin: number;
   dataDir: string;
   rmsThreshold: number;
   silenceMs: number;
@@ -82,6 +86,8 @@ export function loadConfig(): Config {
       ko: listEnv("REACTION_KO_EMOJI", ["🇰🇷"]),
       ja: listEnv("REACTION_JA_EMOJI", ["🇯🇵"]),
     },
+    reactionMaxChars: numEnv("REACTION_MAX_CHARS", 1000, 1),
+    reactionRatePerMin: numEnv("REACTION_RATE_PER_MIN", 10),
     dataDir: env("DATA_DIR", "/data"),
     rmsThreshold: numEnv("RMS_THRESHOLD", 250),
     silenceMs: numEnv("SILENCE_MS", 800, 100),

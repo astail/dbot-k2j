@@ -22,14 +22,26 @@ const toEntry = (r: Row): TranslationEntry => ({
 });
 
 /**
- * 元メッセージ ID → (翻訳先言語 → 翻訳メッセージ) の対応表。
+ * 元メッセージ ID → (翻訳先言語 → 翻訳メッセージ) の対応表と、訳文のキャッシュ。
  * ボットや PC を再起動しても元メッセージの削除に追随できるよう SQLite に永続化する。
- * 件数が上限を超えたら古いものから忘れる (忘れた翻訳は元メッセージが消えても残る)。
+ * 対応 (元メッセージ×言語 の 1 組) の数が上限を超えたら古いものから忘れる
+ * (忘れた翻訳は元メッセージが消えても残る)。キャッシュも同じ上限で古いものから消す。
  */
 export class TranslationIndex {
   private readonly db: DatabaseSync;
   private readonly stmt: Record<
-    "get" | "entries" | "upsert" | "updateSource" | "remove" | "removeAll" | "byTranslation" | "count" | "prune",
+    | "get"
+    | "entries"
+    | "upsert"
+    | "updateSource"
+    | "remove"
+    | "removeAll"
+    | "byTranslation"
+    | "count"
+    | "prune"
+    | "cacheGet"
+    | "cachePut"
+    | "cachePrune",
     StatementSync
   >;
 
@@ -51,6 +63,16 @@ export class TranslationIndex {
         PRIMARY KEY (original_id, lang)
       );
       CREATE INDEX IF NOT EXISTS translations_created_at ON translations (created_at);
+      -- リアクションの付け外しや再投稿で同じ本文を翻訳し直さないためのキャッシュ
+      CREATE TABLE IF NOT EXISTS translation_cache (
+        original_id TEXT    NOT NULL,
+        lang        TEXT    NOT NULL,
+        source_text TEXT    NOT NULL,
+        translated  TEXT    NOT NULL,
+        created_at  INTEGER NOT NULL,
+        PRIMARY KEY (original_id, lang)
+      );
+      CREATE INDEX IF NOT EXISTS translation_cache_created_at ON translation_cache (created_at);
     `);
     const cols = "lang, translation_id, source_text";
     this.stmt = {
@@ -70,16 +92,28 @@ export class TranslationIndex {
       byTranslation: this.db.prepare(
         "SELECT original_id, lang FROM translations WHERE translation_id = ?",
       ),
-      count: this.db.prepare("SELECT COUNT(DISTINCT original_id) AS n FROM translations"),
+      count: this.db.prepare("SELECT COUNT(*) AS n FROM translations"),
       prune: this.db.prepare(
         `DELETE FROM translations WHERE rowid IN (
            SELECT rowid FROM translations ORDER BY created_at, rowid
            LIMIT max(0, (SELECT COUNT(*) FROM translations) - ?))`,
       ),
+      cacheGet: this.db.prepare(
+        "SELECT translated FROM translation_cache WHERE original_id = ? AND lang = ? AND source_text = ?",
+      ),
+      cachePut: this.db.prepare(
+        `INSERT OR REPLACE INTO translation_cache (original_id, lang, source_text, translated, created_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      ),
+      cachePrune: this.db.prepare(
+        `DELETE FROM translation_cache WHERE rowid IN (
+           SELECT rowid FROM translation_cache ORDER BY created_at, rowid
+           LIMIT max(0, (SELECT COUNT(*) FROM translation_cache) - ?))`,
+      ),
     };
   }
 
-  /** 対応表に載っている元メッセージの数 */
+  /** 対応 (元メッセージ×言語) の数 */
   get size(): number {
     return (this.stmt.count.get() as { n: number }).n;
   }
@@ -118,6 +152,19 @@ export class TranslationIndex {
       | { original_id: string; lang: Lang }
       | undefined;
     if (ref) this.remove(ref.original_id, ref.lang);
+  }
+
+  /** 同じ本文を同じ言語へ翻訳済みならその訳文 */
+  cachedTranslation(originalId: string, lang: Lang, sourceText: string): string | undefined {
+    const row = this.stmt.cacheGet.get(originalId, lang, sourceText) as
+      | { translated: string }
+      | undefined;
+    return row?.translated;
+  }
+
+  cacheTranslation(originalId: string, lang: Lang, sourceText: string, translated: string): void {
+    this.stmt.cachePut.run(originalId, lang, sourceText, translated, Date.now());
+    this.stmt.cachePrune.run(this.maxEntries);
   }
 
   close(): void {

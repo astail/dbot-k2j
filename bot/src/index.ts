@@ -133,7 +133,7 @@ async function registerCommands(guild: Guild): Promise<void> {
 client.once(Events.ClientReady, async (c) => {
   console.log(`ログインしました: ${c.user.tag}`);
   console.log(
-    `招待URL: https://discord.com/api/oauth2/authorize?client_id=${c.user.id}&permissions=3214336&scope=bot%20applications.commands`,
+    `招待URL: https://discord.com/api/oauth2/authorize?client_id=${c.user.id}&permissions=274881121280&scope=bot%20applications.commands`,
   );
   await Promise.all(c.guilds.cache.map((g) => registerCommands(g)));
   console.log(`/k2j コマンドを ${c.guilds.cache.size} サーバーに登録しました`);

@@ -21,7 +21,7 @@ export class DeepLTranslator implements Translator {
       },
       body: JSON.stringify({
         text: [text],
-        source_lang: opts.from.toUpperCase(),
+        ...(opts.from ? { source_lang: opts.from.toUpperCase() } : {}),
         target_lang: opts.to.toUpperCase(),
       }),
       signal: AbortSignal.timeout(15_000),
