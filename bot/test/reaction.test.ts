@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { emojiLang, formatTranslation } from "../src/text/reactionTranslate.js";
 import { TranslationIndex } from "../src/text/translationIndex.js";
@@ -46,7 +49,7 @@ describe("formatTranslation", () => {
 
 describe("TranslationIndex", () => {
   it("元メッセージごとに言語別の翻訳を保持・削除できる", () => {
-    const idx = new TranslationIndex();
+    const idx = new TranslationIndex(":memory:");
     idx.set("m1", "ko", { translationId: "t1", sourceText: "a" });
     idx.set("m1", "ja", { translationId: "t2", sourceText: "a" });
     expect(idx.get("m1", "ko")?.translationId).toBe("t1");
@@ -57,7 +60,7 @@ describe("TranslationIndex", () => {
   });
 
   it("翻訳メッセージが消されたら対応を忘れる (再リアクションで再投稿できる)", () => {
-    const idx = new TranslationIndex();
+    const idx = new TranslationIndex(":memory:");
     idx.set("m1", "ko", { translationId: "t1", sourceText: "a" });
     idx.forgetTranslation("t1");
     expect(idx.get("m1", "ko")).toBeUndefined();
@@ -65,7 +68,7 @@ describe("TranslationIndex", () => {
   });
 
   it("上限を超えたら古い元メッセージから忘れる", () => {
-    const idx = new TranslationIndex(2);
+    const idx = new TranslationIndex(":memory:", 2);
     idx.set("m1", "ko", { translationId: "t1", sourceText: "a" });
     idx.set("m2", "ko", { translationId: "t2", sourceText: "a" });
     idx.set("m3", "ko", { translationId: "t3", sourceText: "a" });
@@ -75,5 +78,33 @@ describe("TranslationIndex", () => {
     // 忘れた翻訳の逆引きも消えている
     idx.forgetTranslation("t1");
     expect(idx.size).toBe(2);
+  });
+
+  it("編集で翻訳元の本文を差し替えられる", () => {
+    const idx = new TranslationIndex(":memory:");
+    idx.set("m1", "ja", { translationId: "t1", sourceText: "before" });
+    idx.updateSource("m1", "ja", "after");
+    expect(idx.get("m1", "ja")).toEqual({ translationId: "t1", sourceText: "after" });
+  });
+
+  it("再起動 (開き直し) 後も対応が残っている", () => {
+    const dir = mkdtempSync(join(tmpdir(), "k2j-index-"));
+    try {
+      const path = join(dir, "sub", "translations.db");
+      const idx = new TranslationIndex(path);
+      idx.set("m1", "ko", { translationId: "t1", sourceText: "こんにちは" });
+      idx.set("m1", "ja", { translationId: "t2", sourceText: "こんにちは" });
+      idx.close();
+
+      const reopened = new TranslationIndex(path);
+      expect(reopened.entries("m1")).toEqual([
+        ["ja", { translationId: "t2", sourceText: "こんにちは" }],
+        ["ko", { translationId: "t1", sourceText: "こんにちは" }],
+      ]);
+      expect(reopened.removeAll("m1").map((e) => e.translationId).sort()).toEqual(["t1", "t2"]);
+      reopened.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

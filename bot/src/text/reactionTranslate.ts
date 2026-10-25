@@ -14,7 +14,7 @@ import {
 import type { Config } from "../config.js";
 import { LANG_NAMES, type Lang, type Translator } from "../mt/index.js";
 import { needsChatTranslation } from "../util/filter.js";
-import { TranslationIndex } from "./translationIndex.js";
+import type { TranslationIndex } from "./translationIndex.js";
 
 const MAX_MESSAGE_LENGTH = 2000;
 const LANG_FLAGS: Record<Lang, string> = { ko: "🇰🇷", ja: "🇯🇵" };
@@ -54,7 +54,6 @@ function logError(scope: string) {
  * - 元メッセージの編集 → 翻訳も更新
  */
 export class ReactionTranslator {
-  private readonly index = new TranslationIndex();
   /** 翻訳中のジョブ (`${messageId}:${lang}`)。翻訳中に取り消されたら投稿後に消す */
   private readonly pending = new Map<string, { cancelled: boolean }>();
 
@@ -62,6 +61,7 @@ export class ReactionTranslator {
     private readonly client: Client,
     private readonly cfg: Config,
     private readonly mt: Translator,
+    private readonly index: TranslationIndex,
   ) {}
 
   register(): void {
@@ -94,7 +94,14 @@ export class ReactionTranslator {
     if (!message.inGuild() || message.author.id === this.client.user?.id) return;
 
     const key = `${message.id}:${lang}`;
-    if (this.index.get(message.id, lang) || this.pending.has(key)) return; // 翻訳済み/翻訳中
+    if (this.pending.has(key)) return; // 翻訳中
+    const existing = this.index.get(message.id, lang);
+    if (existing) {
+      // 翻訳済み。ただしボット停止中に翻訳が手動削除されていたら対応を忘れて投稿し直す
+      const alive = await message.channel.messages.fetch(existing.translationId).catch(() => null);
+      if (alive) return;
+      this.index.forgetTranslation(existing.translationId);
+    }
     const text = sourceText(message);
     if (!text || !needsChatTranslation(text, lang)) return;
 
@@ -166,9 +173,10 @@ export class ReactionTranslator {
         await this.deleteTranslations(message, lang);
         continue;
       }
-      entry.sourceText = text;
+      this.index.updateSource(message.id, lang, text);
       const translated = await this.translate(text, lang);
-      if (!translated || this.index.get(message.id, lang) !== entry) continue; // 翻訳中に削除された
+      // 翻訳中に削除・差し替えされていたら何もしない
+      if (!translated || this.index.get(message.id, lang)?.translationId !== entry.translationId) continue;
       await message.channel.messages.edit(entry.translationId, {
         content: formatTranslation(translated, lang),
         allowedMentions: { parse: [], repliedUser: false },
