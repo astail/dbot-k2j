@@ -7,10 +7,16 @@ import {
   type ChatInputCommandInteraction,
 } from "discord.js";
 import type { BotContext } from "./context.js";
+import { LANG_NAMES, otherLang, type Lang } from "./mt/index.js";
+import { setSpeakerLang, speakerLang, type GuildSettings } from "./store.js";
+
+function speakerCounts(settings: GuildSettings): { ko: number; ja: number } {
+  return { ko: settings.userIds.length, ja: settings.jaUserIds?.length ?? 0 };
+}
 
 export const k2jCommand = new SlashCommandBuilder()
   .setName("k2j")
-  .setDescription("韓国語→日本語 音声翻訳ボットの操作")
+  .setDescription("韓国語⇔日本語 音声翻訳ボットの操作")
   .setContexts(InteractionContextType.Guild)
   .addSubcommand((s) =>
     s.setName("join").setDescription("あなたが参加中のボイスチャンネルに接続して翻訳を開始"),
@@ -19,16 +25,25 @@ export const k2jCommand = new SlashCommandBuilder()
   .addSubcommand((s) =>
     s
       .setName("add")
-      .setDescription("韓国語話者として指定 (要: サーバー管理権限)")
-      .addUserOption((o) => o.setName("user").setDescription("対象ユーザー").setRequired(true)),
+      .setDescription("翻訳する話者として指定 (要: サーバー管理権限)")
+      .addUserOption((o) => o.setName("user").setDescription("対象ユーザー").setRequired(true))
+      .addStringOption((o) =>
+        o
+          .setName("lang")
+          .setDescription("その人が話す言語 (省略時: 韓国語)")
+          .addChoices(
+            { name: "韓国語 (→ 日本語に翻訳・読み上げ)", value: "ko" },
+            { name: "日本語 (→ 韓国語に翻訳・字幕のみ)", value: "ja" },
+          ),
+      ),
   )
   .addSubcommand((s) =>
     s
       .setName("remove")
-      .setDescription("韓国語話者の指定を解除 (要: サーバー管理権限)")
+      .setDescription("話者の指定を解除 (要: サーバー管理権限)")
       .addUserOption((o) => o.setName("user").setDescription("対象ユーザー").setRequired(true)),
   )
-  .addSubcommand((s) => s.setName("list").setDescription("指定中の韓国語話者を表示"))
+  .addSubcommand((s) => s.setName("list").setDescription("指定中の話者を表示"))
   .addSubcommand((s) =>
     s
       .setName("tts")
@@ -120,13 +135,19 @@ async function join(ctx: BotContext, i: ChatInputCommandInteraction): Promise<vo
   if ((settings.tts ?? ctx.cfg.ttsEnabled) && !(await ctx.tts.healthy())) {
     warnings.push("⚠ VOICEVOX に接続できないため読み上げは失敗する可能性があります (字幕は投稿されます)。");
   }
-  if (settings.userIds.length === 0) {
-    warnings.push("⚠ 韓国語話者が未指定です。`/k2j add` で指定するまで何も翻訳されません。");
+  const counts = speakerCounts(settings);
+  if (counts.ko + counts.ja === 0) {
+    warnings.push("⚠ 話者が未指定です。`/k2j add` で指定するまで何も翻訳されません。");
   }
   await ctx.joinChannel(channel);
+  const targets = [
+    counts.ko > 0 ? `韓国語話者 ${counts.ko} 名 → 日本語` : null,
+    counts.ja > 0 ? `日本語話者 ${counts.ja} 名 → 韓国語` : null,
+  ].filter(Boolean);
   await i.editReply(
     [
-      `✅ 「${channel.name}」に接続しました。指定話者 ${settings.userIds.length} 名の韓国語を日本語に翻訳します。`,
+      `✅ 「${channel.name}」に接続しました。` +
+        (targets.length > 0 ? `翻訳対象: ${targets.join(" / ")}` : ""),
       ...warnings,
     ].join("\n"),
   );
@@ -148,13 +169,19 @@ async function addUser(ctx: BotContext, i: ChatInputCommandInteraction): Promise
     await i.reply({ content: "ボットは指定できません。", flags: MessageFlags.Ephemeral });
     return;
   }
+  const lang = (i.options.getString("lang") ?? "ko") as Lang;
   const settings = ctx.store.guild(i.guildId!);
-  if (!settings.userIds.includes(user.id)) {
-    settings.userIds.push(user.id);
-    ctx.store.save();
-  }
+  const previous = speakerLang(settings, user.id);
+  if (setSpeakerLang(settings, user.id, lang)) ctx.store.save();
+  const counts = speakerCounts(settings);
+  const note =
+    previous && previous !== lang ? ` (${LANG_NAMES[previous]}話者から変更)` : "";
   await i.reply({
-    content: `${user} を韓国語話者として指定しました (現在 ${settings.userIds.length} 名)。`,
+    content:
+      `${user} を${LANG_NAMES[lang]}話者として指定しました${note}。` +
+      `発話は${LANG_NAMES[otherLang(lang)]}に翻訳されます` +
+      (lang === "ja" ? " (字幕のみ。読み上げは日本語訳だけ対応)" : "") +
+      `。\n現在: 韓国語話者 ${counts.ko} 名 / 日本語話者 ${counts.ja} 名`,
     flags: MessageFlags.Ephemeral,
     allowedMentions: { parse: [] },
   });
@@ -163,26 +190,31 @@ async function addUser(ctx: BotContext, i: ChatInputCommandInteraction): Promise
 async function removeUser(ctx: BotContext, i: ChatInputCommandInteraction): Promise<void> {
   const user = i.options.getUser("user", true);
   const settings = ctx.store.guild(i.guildId!);
-  const before = settings.userIds.length;
-  settings.userIds = settings.userIds.filter((id) => id !== user.id);
-  if (settings.userIds.length !== before) ctx.store.save();
+  const removed = setSpeakerLang(settings, user.id, null);
+  if (removed) ctx.store.save();
+  const counts = speakerCounts(settings);
   await i.reply({
-    content:
-      settings.userIds.length !== before
-        ? `${user} の指定を解除しました (現在 ${settings.userIds.length} 名)。`
-        : `${user} は指定されていません。`,
+    content: removed
+      ? `${user} の指定を解除しました (現在: 韓国語話者 ${counts.ko} 名 / 日本語話者 ${counts.ja} 名)。`
+      : `${user} は指定されていません。`,
     flags: MessageFlags.Ephemeral,
     allowedMentions: { parse: [] },
   });
 }
 
 async function listUsers(ctx: BotContext, i: ChatInputCommandInteraction): Promise<void> {
-  const { userIds } = ctx.store.guild(i.guildId!);
+  const settings = ctx.store.guild(i.guildId!);
+  const section = (label: string, ids: string[]) =>
+    ids.length === 0 ? [] : [`${label} (${ids.length} 名):`, ...ids.map((id) => `- <@${id}>`)];
+  const lines = [
+    ...section("韓国語話者 → 日本語", settings.userIds),
+    ...section("日本語話者 → 韓国語", settings.jaUserIds ?? []),
+  ];
   await i.reply({
     content:
-      userIds.length === 0
-        ? "韓国語話者は指定されていません。`/k2j add` で指定してください。"
-        : `指定中の韓国語話者 (${userIds.length} 名):\n${userIds.map((id) => `- <@${id}>`).join("\n")}`,
+      lines.length === 0
+        ? "話者は指定されていません。`/k2j add` で指定してください。"
+        : lines.join("\n"),
     flags: MessageFlags.Ephemeral,
     allowedMentions: { parse: [] },
   });
@@ -227,7 +259,7 @@ async function status(ctx: BotContext, i: ChatInputCommandInteraction): Promise<
     `音声認識: ${ctx.cfg.sttModel} (${ctx.cfg.sttBaseUrl})`,
     `読み上げ: ${ttsOn ? `ON (VOICEVOX speaker ${ctx.cfg.voicevoxSpeaker})` : "OFF (字幕のみ)"}`,
     `字幕投稿先: ${settings.subtitleChannelId ? `<#${settings.subtitleChannelId}>` : "VC のテキストチャット"}`,
-    `指定話者: ${settings.userIds.length} 名`,
+    `指定話者: 韓国語 ${speakerCounts(settings).ko} 名 / 日本語 ${speakerCounts(settings).ja} 名`,
     `リアクション翻訳: ${
       ctx.cfg.reactionTranslation
         ? `ON (${ctx.cfg.reactionEmojis.ko.join(" ")} → 韓国語 / ${ctx.cfg.reactionEmojis.ja.join(" ")} → 日本語)`

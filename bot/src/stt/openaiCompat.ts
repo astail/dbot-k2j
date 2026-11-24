@@ -1,4 +1,5 @@
 import type { Config } from "../config.js";
+import type { Lang } from "../mt/index.js";
 
 type TranscribeAttempt = { ok: true; text: string } | { ok: false; status: number; body: string };
 
@@ -12,27 +13,26 @@ export class SttClient {
 
   constructor(private readonly cfg: Config) {}
 
-  async transcribe(wav: Buffer): Promise<string> {
-    const first = await this.request(wav);
+  /** language は話者の言語。STT_LANGUAGE=auto のときは無視して自動判定させる */
+  async transcribe(wav: Buffer, language: Lang): Promise<string> {
+    const first = await this.request(wav, language);
     if (first.ok) return first.text;
     // speaches はモデルを自動ダウンロードしない仕様のため、未インストールなら入れてリトライ
     // (OpenAI はこのメッセージを返さないので、ローカル利用時のみ発動する)
     if (first.status === 404 && first.body.includes("not installed")) {
       await this.installModel();
-      const retry = await this.request(wav);
+      const retry = await this.request(wav, language);
       if (retry.ok) return retry.text;
       throw new Error(`STT ${retry.status}: ${retry.body}`);
     }
     throw new Error(`STT ${first.status}: ${first.body}`);
   }
 
-  private async request(wav: Buffer): Promise<TranscribeAttempt> {
+  private async request(wav: Buffer, language: Lang): Promise<TranscribeAttempt> {
     const form = new FormData();
     form.append("file", new Blob([new Uint8Array(wav)], { type: "audio/wav" }), "audio.wav");
     form.append("model", this.cfg.sttModel);
-    if (this.cfg.sttLanguage && this.cfg.sttLanguage !== "auto") {
-      form.append("language", this.cfg.sttLanguage);
-    }
+    if (this.cfg.sttLanguage !== "auto") form.append("language", language);
     form.append("response_format", "json");
 
     const res = await fetch(`${this.cfg.sttBaseUrl}/audio/transcriptions`, {

@@ -13,7 +13,7 @@ import { loadConfig } from "./config.js";
 import { handleK2j, k2jCommand } from "./commands.js";
 import type { BotContext } from "./context.js";
 import { createTranslator } from "./mt/index.js";
-import { SettingsStore } from "./store.js";
+import { SettingsStore, speakerLang } from "./store.js";
 import { SttClient } from "./stt/openaiCompat.js";
 import { ReactionTranslator } from "./text/reactionTranslate.js";
 import { TranslationIndex } from "./text/translationIndex.js";
@@ -69,12 +69,14 @@ async function displayName(guildId: string, userId: string): Promise<string> {
 const lastErrorNotifiedAt = new Map<string, number>();
 
 const output: PipelineOutput = {
-  async postSubtitle(guildId, userId, ko, ja) {
+  async postSubtitle(guildId, userId, original, translated, to) {
     const channel = await resolveSubtitleChannel(guildId);
     if (!channel) return;
     const name = await displayName(guildId, userId);
+    // 韓国語訳は韓国語話者向けなので国旗で区別できるようにする
+    const prefix = to === "ko" ? "🇰🇷 " : "";
     const message = await channel.send({
-      content: `**${escapeDiscord(name)}**：${escapeDiscord(ja)}\n-# ${escapeDiscord(ko)}`,
+      content: `${prefix}**${escapeDiscord(name)}**：${escapeDiscord(translated)}\n-# ${escapeDiscord(original)}`,
       allowedMentions: { parse: [] },
       flags: MessageFlags.SuppressNotifications,
     });
@@ -108,8 +110,9 @@ const pipeline = new Pipeline(cfg, stt, mt, tts, output);
 async function joinChannel(channel: VoiceBasedChannel): Promise<VoiceSession> {
   sessions.get(channel.guild.id)?.destroy();
   const session = new VoiceSession(channel, cfg, {
-    isTarget: (userId) => store.guild(channel.guild.id).userIds.includes(userId),
-    onUtterance: (guildId, userId, pcm) => pipeline.handleUtterance(guildId, userId, pcm),
+    speakerLang: (userId) => speakerLang(store.guild(channel.guild.id), userId),
+    onUtterance: (guildId, userId, pcm, lang) =>
+      pipeline.handleUtterance(guildId, userId, pcm, lang),
     onClosed: (guildId) => {
       if (sessions.get(guildId) === session) sessions.delete(guildId);
     },

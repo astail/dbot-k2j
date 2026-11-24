@@ -1,13 +1,38 @@
+import type { Lang } from "./mt/index.js";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export interface GuildSettings {
-  /** 韓国語話者として指定されたユーザー ID */
+  /** 韓国語話者として指定されたユーザー ID (韓国語→日本語) */
   userIds: string[];
+  /** 日本語話者として指定されたユーザー ID (日本語→韓国語)。旧設定ファイルには無い */
+  jaUserIds?: string[];
   /** 字幕の投稿先。省略時は参加中 VC のテキストチャット */
   subtitleChannelId?: string;
   /** ギルド毎の読み上げ ON/OFF。省略時は env の TTS_ENABLED */
   tts?: boolean;
+}
+
+/** 話者として指定されている言語。未指定なら null */
+export function speakerLang(settings: GuildSettings, userId: string): Lang | null {
+  if (settings.userIds.includes(userId)) return "ko";
+  if (settings.jaUserIds?.includes(userId)) return "ja";
+  return null;
+}
+
+/**
+ * 話者の言語を設定する (null で解除)。1 人 1 言語なので、もう片方のリストからは外す。
+ * 変更があれば true
+ */
+export function setSpeakerLang(settings: GuildSettings, userId: string, lang: Lang | null): boolean {
+  if (speakerLang(settings, userId) === lang) return false;
+  settings.userIds = settings.userIds.filter((id) => id !== userId);
+  const ja = (settings.jaUserIds ?? []).filter((id) => id !== userId);
+  if (lang === "ko") settings.userIds.push(userId);
+  if (lang === "ja") ja.push(userId);
+  if (ja.length > 0) settings.jaUserIds = ja;
+  else delete settings.jaUserIds;
+  return true;
 }
 
 interface StoreFile {

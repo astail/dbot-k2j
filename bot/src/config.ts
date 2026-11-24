@@ -7,8 +7,8 @@ export interface Config {
   sttBaseUrl: string;
   sttApiKey: string;
   sttModel: string;
-  /** "ko" 固定運用を推奨。"auto" で Whisper の言語自動判定 */
-  sttLanguage: string;
+  /** "fixed" (既定): 話者に指定した言語で認識 / "auto": Whisper の言語自動判定 */
+  sttLanguage: "fixed" | "auto";
   /** グローバル既定。ギルド毎の /k2j tts 設定が優先される */
   ttsEnabled: boolean;
   voicevoxUrl: string;
@@ -75,7 +75,8 @@ export function loadConfig(): Config {
     sttBaseUrl: env("STT_BASE_URL", "http://stt:8000/v1").replace(/\/+$/, ""),
     sttApiKey: env("STT_API_KEY"),
     sttModel: env("STT_MODEL", "Systran/faster-whisper-small"),
-    sttLanguage: env("STT_LANGUAGE", "ko"),
+    // 旧設定の STT_LANGUAGE=ko は「話者の言語で固定」と同じ意味として扱う
+    sttLanguage: env("STT_LANGUAGE").toLowerCase() === "auto" ? "auto" : "fixed",
     ttsEnabled: env("TTS_ENABLED", "true").toLowerCase() !== "false",
     voicevoxUrl: env("VOICEVOX_URL", "http://voicevox:50021").replace(/\/+$/, ""),
     voicevoxSpeaker: numEnv("VOICEVOX_SPEAKER", 3),

@@ -115,3 +115,54 @@ describe("escapeDiscord", () => {
     );
   });
 });
+
+describe("isUsableTranscript (日本語話者)", () => {
+  it("通常の日本語発話は通す", () => {
+    expect(isUsableTranscript("今日のゲーム本当に面白かった", "ja")).toBe(true);
+    expect(isUsableTranscript("明日何時にやる？", "ja")).toBe(true);
+    expect(isUsableTranscript("ありがとう", "ja")).toBe(true);
+  });
+
+  it("相槌だけの発話は破棄する", () => {
+    for (const text of [
+      "はい",
+      "はいはい",
+      "はーい",
+      "うん",
+      "うんうん",
+      "うーん...",
+      "ええ",
+      "えー",
+      "あー",
+      "へー",
+      "ふーん",
+      "なるほど",
+      "そうそう",
+      "そうですね。",
+      "確かに",
+      "オッケー",
+      "ハハハ",
+      "www",
+      "はい、はい",
+      "あー、なるほど",
+    ]) {
+      expect(isUsableTranscript(text, "ja"), text).toBe(false);
+    }
+  });
+
+  it("相槌から始まっても内容が続けば通す", () => {
+    expect(isUsableTranscript("はい、今から行きます", "ja")).toBe(true);
+    expect(isUsableTranscript("うん、それでいいよ", "ja")).toBe(true);
+  });
+
+  it("日本語の文字が無い結果は破棄する", () => {
+    expect(isUsableTranscript("Thank you for watching", "ja")).toBe(false);
+    expect(isUsableTranscript("오늘 게임 재밌었어", "ja")).toBe(false);
+    expect(isUsableTranscript("...", "ja")).toBe(false);
+  });
+
+  it("Whisper の定型ハルシネーションを破棄する", () => {
+    expect(isUsableTranscript("ご視聴ありがとうございました", "ja")).toBe(false);
+    expect(isUsableTranscript("チャンネル登録よろしくお願いします", "ja")).toBe(false);
+  });
+});

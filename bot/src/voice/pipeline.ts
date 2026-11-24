@@ -1,5 +1,5 @@
 import type { Config } from "../config.js";
-import type { Translator } from "../mt/index.js";
+import { otherLang, type Lang, type Translator } from "../mt/index.js";
 import type { SttClient } from "../stt/openaiCompat.js";
 import type { VoicevoxClient } from "../tts/voicevox.js";
 import { isUsableTranscript } from "../util/filter.js";
@@ -7,7 +7,14 @@ import { pcm48kStereoToWav16kMono, pcmRms } from "./wav.js";
 
 /** パイプラインが外界 (Discord) へ出力するためのフック。index.ts が実装する */
 export interface PipelineOutput {
-  postSubtitle(guildId: string, userId: string, ko: string, ja: string): Promise<void>;
+  /** original: 話者の発話 (認識結果) / translated: 訳文 / to: 訳文の言語 */
+  postSubtitle(
+    guildId: string,
+    userId: string,
+    original: string,
+    translated: string,
+    to: Lang,
+  ): Promise<void>;
   playTts(guildId: string, pcm: Buffer): void;
   ttsEnabled(guildId: string): boolean;
   notifyError(guildId: string, message: string): void;
@@ -49,7 +56,7 @@ export class Pipeline {
   }
 
   /** VoiceSession から発話を受け取るエントリポイント */
-  handleUtterance(guildId: string, userId: string, pcm: Buffer): void {
+  handleUtterance(guildId: string, userId: string, pcm: Buffer, lang: Lang): void {
     const durationMs = (pcm.length / 4 / 48_000) * 1000;
     if (durationMs < this.cfg.minUtteranceMs || pcmRms(pcm) < this.cfg.rmsThreshold) {
       this.statsOf(guildId).dropped++;
@@ -58,7 +65,7 @@ export class Pipeline {
     const key = `${guildId}:${userId}`;
     const prev = this.userChains.get(key) ?? Promise.resolve();
     const next = prev.then(() =>
-      this.process(guildId, userId, pcm).catch((e: unknown) => {
+      this.process(guildId, userId, pcm, lang).catch((e: unknown) => {
         this.statsOf(guildId).errors++;
         const msg = e instanceof Error ? e.message : String(e);
         console.error("[pipeline]", msg);
@@ -68,40 +75,46 @@ export class Pipeline {
     this.userChains.set(key, next);
   }
 
-  private async process(guildId: string, userId: string, pcm: Buffer): Promise<void> {
+  private async process(guildId: string, userId: string, pcm: Buffer, from: Lang): Promise<void> {
     const started = Date.now();
     const stats = this.statsOf(guildId);
     const wav = pcm48kStereoToWav16kMono(pcm);
 
-    const ko = await this.withSttSlot(() => this.stt.transcribe(wav));
-    if (!isUsableTranscript(ko)) {
+    const original = await this.withSttSlot(() => this.stt.transcribe(wav, from));
+    if (!isUsableTranscript(original, from)) {
       stats.dropped++;
       return;
     }
     // 同一テキストの短時間連続 (ハルシネーションの典型パターン) は破棄
     const last = this.lastText.get(userId);
     const now = Date.now();
-    if (last && last.text === ko && now - last.at < 5_000) {
+    if (last && last.text === original && now - last.at < 5_000) {
       stats.dropped++;
       return;
     }
-    this.lastText.set(userId, { text: ko, at: now });
+    this.lastText.set(userId, { text: original, at: now });
 
-    const ja = (await this.mt.translate(ko)).trim();
-    if (!ja) {
+    const to = otherLang(from);
+    const translated = (await this.mt.translate(original, { from, to, source: "voice" })).trim();
+    if (!translated) {
       stats.dropped++;
       return;
     }
 
     // 字幕と読み上げは独立に処理する: 片方の失敗がもう片方を止めない。
     // 並列に走らせることで発話→読み上げの体感遅延も短縮する。
-    const subtitlePosted = this.out.postSubtitle(guildId, userId, ko, ja).catch((e: unknown) => {
+    const subtitlePosted = this.out
+      .postSubtitle(guildId, userId, original, translated, to)
+      .catch((e: unknown) => {
       console.error("[subtitle]", e instanceof Error ? e.message : e);
     });
-    if (this.out.ttsEnabled(guildId)) {
+    // VOICEVOX は日本語専用のため、韓国語訳 (日本語話者の発話) は字幕のみ
+    if (to === "ja" && this.out.ttsEnabled(guildId)) {
       // 極端に長い訳文は VOICEVOX の URL 長制限と再生キューを守るため切り詰める (字幕は全文)
       const ttsText =
-        ja.length > this.cfg.ttsMaxChars ? `${ja.slice(0, this.cfg.ttsMaxChars)}。以下省略` : ja;
+        translated.length > this.cfg.ttsMaxChars
+          ? `${translated.slice(0, this.cfg.ttsMaxChars)}。以下省略`
+          : translated;
       try {
         this.out.playTts(guildId, await this.tts.synthesize(ttsText));
       } catch (e) {

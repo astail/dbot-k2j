@@ -13,6 +13,7 @@ import {
 import type { VoiceBasedChannel } from "discord.js";
 import { Readable } from "node:stream";
 import type { Config } from "../config.js";
+import type { Lang } from "../mt/index.js";
 import { captureUtterance } from "./capture.js";
 
 interface TtsJob {
@@ -21,10 +22,10 @@ interface TtsJob {
 }
 
 export interface VoiceSessionHooks {
-  /** このユーザーを翻訳対象にするか (韓国語話者リスト) */
-  isTarget(userId: string): boolean;
-  /** 1 発話分の 48kHz stereo PCM を受け取る */
-  onUtterance(guildId: string, userId: string, pcm: Buffer): void;
+  /** このユーザーの話者言語。null なら翻訳対象外 */
+  speakerLang(userId: string): Lang | null;
+  /** 1 発話分の 48kHz stereo PCM を受け取る (lang は話者の言語) */
+  onUtterance(guildId: string, userId: string, pcm: Buffer, lang: Lang): void;
   /** 接続が失われた・破棄された時に呼ばれる (セッション管理側の後始末用) */
   onClosed(guildId: string): void;
 }
@@ -95,15 +96,17 @@ export class VoiceSession {
   }
 
   private startCapture(userId: string): void {
-    if (this.destroyed || this.capturing.has(userId) || !this.hooks.isTarget(userId)) return;
+    if (this.destroyed || this.capturing.has(userId) || !this.hooks.speakerLang(userId)) return;
     this.capturing.add(userId);
     captureUtterance(this.connection.receiver, userId, {
       silenceMs: this.cfg.silenceMs,
       maxUtteranceMs: this.cfg.maxUtteranceMs,
     })
       .then((u) => {
-        if (!this.destroyed && u.pcm.length > 0) {
-          this.hooks.onUtterance(this.guildId, userId, u.pcm);
+        // 発話中に指定が変わった場合に備え、言語は発話の終了時点で引き直す
+        const lang = this.hooks.speakerLang(userId);
+        if (!this.destroyed && lang && u.pcm.length > 0) {
+          this.hooks.onUtterance(this.guildId, userId, u.pcm, lang);
         }
       })
       .catch((e) => console.error(`[voice] キャプチャ失敗 (user=${userId}):`, e?.message ?? e))

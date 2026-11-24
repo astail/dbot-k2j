@@ -17,6 +17,11 @@ export interface TranslateOptions {
 /** 音声パイプラインの既定: 韓国語の発話を日本語へ */
 export const VOICE_KO_JA: TranslateOptions = { from: "ko", to: "ja", source: "voice" };
 
+/** 韓国語⇔日本語の相手側の言語 */
+export function otherLang(lang: Lang): Lang {
+  return lang === "ko" ? "ja" : "ko";
+}
+
 export interface Translator {
   /** /k2j status に表示する名前 */
   readonly name: string;

@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { SettingsStore } from "../src/store.js";
+import { SettingsStore, setSpeakerLang, speakerLang, type GuildSettings } from "../src/store.js";
 
 let dir: string;
 
@@ -28,5 +28,25 @@ describe("SettingsStore", () => {
     });
     // 未知のギルドは空設定を返す
     expect(reloaded.guild("guild-2")).toEqual({ userIds: [] });
+  });
+
+  it("旧形式 (jaUserIds なし) の設定は全員韓国語話者として読める", () => {
+    const g: GuildSettings = { userIds: ["a"] };
+    expect(speakerLang(g, "a")).toBe("ko");
+    expect(speakerLang(g, "b")).toBeNull();
+  });
+});
+
+describe("setSpeakerLang", () => {
+  it("言語を切り替えるともう片方のリストから外れる", () => {
+    const g: GuildSettings = { userIds: [] };
+    expect(setSpeakerLang(g, "a", "ko")).toBe(true);
+    expect(setSpeakerLang(g, "a", "ko")).toBe(false);
+    expect(setSpeakerLang(g, "a", "ja")).toBe(true);
+    expect(g).toEqual({ userIds: [], jaUserIds: ["a"] });
+    expect(speakerLang(g, "a")).toBe("ja");
+    expect(setSpeakerLang(g, "a", null)).toBe(true);
+    expect(g).toEqual({ userIds: [] });
+    expect(setSpeakerLang(g, "a", null)).toBe(false);
   });
 });
